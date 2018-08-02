@@ -20,11 +20,10 @@ namespace test {
 
         [Fact]
         public async Task Should_Request_And_Deserialize_Model_With_Guid() {
-            var model =
-                await HttpClientBuilder.Create("http://httpbin.org/uuid")
-                    .AsyncGet()
-                    .GetEntity<ModelWithGuid>();
-            
+            var model = await HttpClientBuilder.Create("http://httpbin.org/uuid")
+                .AsyncGet()
+                .GetEntity<ModelWithGuid>();
+
             Assert.NotNull(model);
             Assert.NotEqual(Guid.Empty, model.Uuid);
         }

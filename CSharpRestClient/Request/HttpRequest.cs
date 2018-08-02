@@ -29,8 +29,8 @@ namespace CSharpRestClient.Request {
         private int[] _statusCodesToAccept;
 
         private HttpRequest(HttpMethod httpMethod, string url, ContentType contentType, string payload,
-                Dictionary<string, string> headers, Dictionary<string, string> queryParams, TimeSpan? timeout,
-                List<IPayloadInterceptor> payloadInterceptors, List<IResponseInterceptor> responseInterceptors) {
+            Dictionary<string, string> headers, Dictionary<string, string> queryParams, TimeSpan? timeout,
+            List<IPayloadInterceptor> payloadInterceptors, List<IResponseInterceptor> responseInterceptors) {
             this._httpMethod = httpMethod;
             this._url = url;
             this._contentType = contentType;
@@ -43,8 +43,8 @@ namespace CSharpRestClient.Request {
         }
 
         public static HttpRequest Create(HttpMethod httpMethod, string url, ContentType contentType, string payload,
-                Dictionary<string, string> headers, Dictionary<string, string> queryParams, TimeSpan? timeout,
-                List<IPayloadInterceptor> payloadInterceptors = null, List<IResponseInterceptor> responseInterceptors = null) {
+            Dictionary<string, string> headers, Dictionary<string, string> queryParams, TimeSpan? timeout,
+            List<IPayloadInterceptor> payloadInterceptors = null, List<IResponseInterceptor> responseInterceptors = null) {
             return new HttpRequest(httpMethod, url, contentType, payload, headers, queryParams, timeout, payloadInterceptors, responseInterceptors);
         }
 
@@ -104,46 +104,20 @@ namespace CSharpRestClient.Request {
             return new StringContent(_payload, Encoding.UTF8, GetContentTypeHeaderValue());
         }
 
-        private async Task<string> AsyncRequest() {
+        private HttpClient CreateHttpClient() {
             var httpClient = new HttpClient();
             if (_timeout.HasValue)
                 httpClient.Timeout = _timeout.Value;
 
             // Adiciona os Headers
-            if (_headers != null && _headers.Any()) {
+            if (_headers != null && _headers.Count > 0) {
                 foreach (var header in _headers) {
                     httpClient.DefaultRequestHeaders.Add(header.Key, header.Value);
                 }
             }
-
             httpClient.DefaultRequestHeaders.Accept.Clear();
             httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue(GetContentTypeHeaderValue()));
-
-            var requestUri = GetUrlWithQueryParams();
-
-            Task<HttpResponseMessage> requestTask = null;
-            if (_httpMethod == HttpMethod.Get) {
-                requestTask = httpClient.GetAsync(requestUri);
-            } else if (_httpMethod == HttpMethod.Post) {
-                requestTask = httpClient.PostAsync(requestUri, GeneratePayloadContent());
-            } else if (_httpMethod == HttpMethod.Put) {
-                requestTask = httpClient.PutAsync(requestUri, GeneratePayloadContent());
-            } else if (_httpMethod == HttpMethod.Delete) {
-                requestTask = httpClient.DeleteAsync(requestUri);
-            }
-
-            try {
-                using(var httpResponse = await requestTask) {
-                    ValidateHttpStatus(httpResponse);
-                    return await ExtractResponse(httpResponse.Content);
-                }
-            } catch (RestClientException) {
-                throw;
-            } catch (TaskCanceledException ex) {
-                throw new RestClientTimeoutException($"Timeout during the request to URL {_url}.", ex);
-            } catch (Exception ex) {
-                throw new RestClientException($"An error occurred during the request to URL {_url}.", ex);
-            }
+            return httpClient;
         }
 
         private void ValidateHttpStatus(HttpResponseMessage response) {
@@ -164,6 +138,39 @@ namespace CSharpRestClient.Request {
                     throw new RestClientException(response.StatusCode, "The requested server is unavailable.");
                 default:
                     throw new RestClientException(response.StatusCode, "An unexpected response was received.");
+            }
+        }
+
+        private Task<HttpResponseMessage> CreateRequest() {
+            var httpClient = CreateHttpClient();
+            var requestUri = GetUrlWithQueryParams();
+
+            if (_httpMethod == HttpMethod.Get) {
+                return httpClient.GetAsync(requestUri);
+            } else if (_httpMethod == HttpMethod.Post) {
+                return httpClient.PostAsync(requestUri, GeneratePayloadContent());
+            } else if (_httpMethod == HttpMethod.Put) {
+                return httpClient.PutAsync(requestUri, GeneratePayloadContent());
+            } else if (_httpMethod == HttpMethod.Delete) {
+                return httpClient.DeleteAsync(requestUri);
+            }
+            throw new RestClientException("HTTP method not supported.");
+        }
+
+        private async Task<string> AsyncRequest() {
+            var requestTask = CreateRequest();
+
+            try {
+                using(var httpResponse = await requestTask) {
+                    ValidateHttpStatus(httpResponse);
+                    return await ExtractResponse(httpResponse.Content);
+                }
+            } catch (RestClientException) {
+                throw;
+            } catch (TaskCanceledException ex) {
+                throw new RestClientTimeoutException($"Timeout during the request to URL {_url}.", ex);
+            } catch (Exception ex) {
+                throw new RestClientException($"An error occurred during the request to URL {_url}.", ex);
             }
         }
 
