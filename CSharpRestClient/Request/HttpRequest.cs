@@ -4,10 +4,10 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using CSharpRestClient.Builder;
 using CSharpRestClient.Enums;
 using CSharpRestClient.Exceptions;
 using CSharpRestClient.Interceptors;
@@ -19,12 +19,12 @@ using Polly.Wrap;
 
 namespace CSharpRestClient.Request {
     public class HttpRequest<T> {
+        private static readonly HttpClient _httpClient = new HttpClient();
+
+        private readonly HttpRequestMessage _httpRequestMessage;
         private readonly HttpMethod _httpMethod;
-        private readonly string _url;
         private readonly ContentType _contentType;
         private readonly string _payload;
-        private readonly Dictionary<string, string> _headers;
-        private readonly Dictionary<string, string> _queryParams;
         private readonly TimeSpan? _timeout;
 
         private int? numberOfRetries;
@@ -36,39 +36,76 @@ namespace CSharpRestClient.Request {
         private bool _acceptAnyStatusCode;
         private int[] _statusCodesToAccept;
 
-        private HttpRequest(HttpMethod httpMethod, string url, ContentType contentType, string payload,
-            Dictionary<string, string> headers, Dictionary<string, string> queryParams, TimeSpan? timeout,
+        private string _tracingId = DateTime.Now.Ticks.ToString();
+        private bool _logResponse;
+
+        public string Url {
+            get {
+                return _httpRequestMessage.RequestUri.AbsoluteUri;
+            }
+        }
+
+        private bool HasBodyToSend {
+            get {
+                return _payload != null && (_httpMethod == HttpMethod.Post || _httpMethod == HttpMethod.Put);
+            }
+        }
+
+        private HttpRequest(HttpMethod httpMethod, string requestUri, ContentType contentType, string payload,
+            Dictionary<string, string> headers, TimeSpan? timeout,
             List<IPayloadInterceptor> payloadInterceptors, List<IResponseInterceptor> responseInterceptors) {
             this._httpMethod = httpMethod;
-            this._url = url;
+            this._httpRequestMessage = CreateRequestMessage(httpMethod, requestUri, headers, payload);
             this._contentType = contentType;
             this._payload = payload;
-            this._headers = headers;
-            this._queryParams = queryParams;
             this._timeout = timeout;
             this._payloadInterceptors = payloadInterceptors;
             this._responseInterceptors = responseInterceptors;
         }
 
-        public static HttpRequest<T> Create(HttpMethod httpMethod, string url, ContentType contentType, string payload,
-            Dictionary<string, string> headers, Dictionary<string, string> queryParams, TimeSpan? timeout,
+        public static HttpRequest<T> Create(HttpMethod httpMethod, string requestUri, ContentType contentType, string payload,
+            Dictionary<string, string> headers, TimeSpan? timeout,
             List<IPayloadInterceptor> payloadInterceptors = null, List<IResponseInterceptor> responseInterceptors = null) {
-            return new HttpRequest<T>(httpMethod, url, contentType, payload, headers, queryParams, timeout, payloadInterceptors, responseInterceptors);
+            return new HttpRequest<T>(httpMethod, requestUri, contentType, payload, headers, timeout, payloadInterceptors, responseInterceptors);
         }
 
-        public static string FormartParamsToUrl(Dictionary<string, string> parameters) {
-            if (parameters == null) return null;
-            return string.Join("&", parameters.AsEnumerable()
-                .Select(entry => $"{entry.Key}={entry.Value}")
-                .ToList());
+        private static HttpRequestMessage CreateRequestMessage(HttpMethod httpMethod, string requestUri,
+                Dictionary<string, string> headers, string payload) {
+            var httpRequestMessage = new HttpRequestMessage(httpMethod, requestUri);
+            if (headers != null && headers.Count > 0) {
+                foreach (var header in headers) {
+                    httpRequestMessage.Headers.Add(header.Key, header.Value);
+                }
+            }
+            return httpRequestMessage;
         }
 
         ///<summary>
-        /// Helper method to debug or log in the server.
+        /// Set the tracing ID to help trace request and logs.
         ///</summary>
-        public HttpRequest<T> LogPayloadToConsole() {
-            Console.WriteLine(_payload);
+        public HttpRequest<T> TracingId(string tracingId) {
+            this._tracingId = tracingId;
             return this;
+        }
+
+        ///<summary>
+        /// Helper method to debug/log the request payload.
+        ///</summary>
+        public HttpRequest<T> LogPayload() {
+            Console.WriteLine($"Ctx ID: {_tracingId} - URL: {Url} - Payload: {_payload}");
+            return this;
+        }
+
+        ///<summary>
+        /// Helper method to debug/log the response.
+        ///</summary>
+        public HttpRequest<T> LogResponse() {
+            this._logResponse = true;
+            return this;
+        }
+
+        private void LogResponse(HttpResponseMessage httpResponse, string response) {
+            Console.WriteLine($"Ctx ID: {_tracingId} - Status: {httpResponse.StatusCode} - Response: {response}");
         }
 
         public HttpRequest<T> AcceptAnyStatusCode() {
@@ -91,14 +128,6 @@ namespace CSharpRestClient.Request {
             return this;
         }
 
-        private string GetUrlWithQueryParams() {
-            if (_queryParams == null || _queryParams.Count == 0) return _url;
-            var queryParam = FormartParamsToUrl(_queryParams);
-            if (_url.Contains("?"))
-                return _url + "&" + queryParam;
-            return _url + "?" + queryParam;
-        }
-
         private static async Task<string> ExtractResponse(HttpContent content) {
             var responseReader = new StreamReader(await content.ReadAsStreamAsync(), Encoding.UTF8);
             return await responseReader.ReadToEndAsync();
@@ -106,10 +135,6 @@ namespace CSharpRestClient.Request {
 
         private bool HasAcceptableStatusCode(HttpResponseMessage httpWebResp) {
             return _statusCodesToAccept != null && _statusCodesToAccept.Contains((int) httpWebResp.StatusCode);
-        }
-
-        private bool HasBodyToSend() {
-            return _payload != null && (_httpMethod == HttpMethod.Post || _httpMethod == HttpMethod.Put);
         }
 
         private string GetContentTypeHeaderValue() {
@@ -121,35 +146,56 @@ namespace CSharpRestClient.Request {
                 this._payloadInterceptors.ForEach(i => i.Intercept(_payload));
             return new StringContent(_payload, Encoding.UTF8, GetContentTypeHeaderValue());
         }
-
-        private HttpClient CreateHttpClient() {
-            var httpClient = new HttpClient();
-            if (_timeout.HasValue)
-                httpClient.Timeout = _timeout.Value;
-
-            // Adiciona os Headers
-            if (_headers != null && _headers.Count > 0) {
-                foreach (var header in _headers) {
-                    httpClient.DefaultRequestHeaders.Add(header.Key, header.Value);
-                }
-            }
-            httpClient.DefaultRequestHeaders.Accept.Clear();
-            httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue(GetContentTypeHeaderValue()));
-            return httpClient;
+        
+        private static async Task<string> ExtractResponseFromStream(Task<Stream> content) {
+            var responseReader = new StreamReader(await content, Encoding.UTF8);
+            return await responseReader.ReadToEndAsync();
         }
 
-        private void ValidateHttpStatus(HttpResponseMessage response) {
+        private async Task<string> ExtractResponse(HttpResponseMessage httpResponse) {
+            if (httpResponse == null || httpResponse.Content == null) return null;
+            var response = await ExtractResponseFromStream(httpResponse.Content.ReadAsStreamAsync());
+            if (this._logResponse) {
+                LogResponse(httpResponse, response);
+            }
+            return response;
+        }
+
+        private async Task<string> ExecuteRequest() {
+            if (HasBodyToSend) {
+                _httpRequestMessage.Content = GeneratePayloadContent();
+            }
+
+            if (_timeout.HasValue)
+                _httpClient.Timeout = _timeout.Value;
+            
+            try {
+                using(var httpResponse = await _httpClient.SendAsync(_httpRequestMessage)) {
+                    var response = await ExtractResponse(httpResponse);
+                    ValidateExpectedHttpStatus(httpResponse);
+                    return response;
+                }
+            } catch (RestClientException) {
+                throw;
+            } catch (TaskCanceledException ex) {
+                throw new RestClientTimeoutException($"Timeout during the request to URL {Url}.", ex);
+            } catch (Exception ex) {
+                throw new RestClientException($"An error occurred during the request to URL {Url}.", ex);
+            }
+        }
+
+        private void ValidateExpectedHttpStatus(HttpResponseMessage response) {
             if (response.IsSuccessStatusCode || _acceptAnyStatusCode || HasAcceptableStatusCode(response)) {
                 return;
             }
             switch (response.StatusCode) {
                 case HttpStatusCode.NotFound:
-                    throw new RestClientException(response.StatusCode, string.Format("URL {0} not found.", _url));
+                    throw new RestClientException(response.StatusCode, $"URL {Url} not found.");
                 case HttpStatusCode.BadRequest:
                     throw new RestClientException(response.StatusCode, "Invalid request.");
                 case HttpStatusCode.GatewayTimeout:
                 case HttpStatusCode.RequestTimeout:
-                    throw new RestClientTimeoutException(response.StatusCode, string.Format("Timeout during the request to URL {0}", _url));
+                    throw new RestClientTimeoutException(response.StatusCode, $"Timeout during the request to URL {Url}");
                 case HttpStatusCode.InternalServerError:
                     throw new RestClientException(response.StatusCode, "An internal error occurred during the request.");
                 case HttpStatusCode.ServiceUnavailable:
@@ -158,37 +204,6 @@ namespace CSharpRestClient.Request {
                     throw new RestClientException(response.StatusCode, "Bad gateway.");
                 default:
                     throw new RestClientException(response.StatusCode, "An unexpected response was received.");
-            }
-        }
-
-        private Task<HttpResponseMessage> CreateRequest() {
-            var httpClient = CreateHttpClient();
-            var requestUri = GetUrlWithQueryParams();
-
-            if (_httpMethod == HttpMethod.Get) {
-                return httpClient.GetAsync(requestUri);
-            } else if (_httpMethod == HttpMethod.Post) {
-                return httpClient.PostAsync(requestUri, GeneratePayloadContent());
-            } else if (_httpMethod == HttpMethod.Put) {
-                return httpClient.PutAsync(requestUri, GeneratePayloadContent());
-            } else if (_httpMethod == HttpMethod.Delete) {
-                return httpClient.DeleteAsync(requestUri);
-            }
-            throw new RestClientException("HTTP method not supported.");
-        }
-
-        public async Task<string> ExecuteRequest() {
-            try {
-                using(var httpResponse = await CreateRequest()) {
-                    ValidateHttpStatus(httpResponse);
-                    return await ExtractResponse(httpResponse.Content);
-                }
-            } catch (RestClientException) {
-                throw;
-            } catch (TaskCanceledException ex) {
-                throw new RestClientTimeoutException($"Timeout during the request to URL {_url}.", ex);
-            } catch (Exception ex) {
-                throw new RestClientException($"An error occurred during the request to URL {_url}.", ex);
             }
         }
 
