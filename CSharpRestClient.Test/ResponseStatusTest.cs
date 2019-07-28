@@ -6,6 +6,7 @@ using Xunit;
 
 namespace CSharpRestClient.Test {
     public class ResponseStatusTest {
+        private const string BASE_URL = "http://httpbin.org";
 
         [Theory]
         [InlineData(200)]
@@ -14,7 +15,7 @@ namespace CSharpRestClient.Test {
         [InlineData(204)]
         [InlineData(205)]
         public async Task Should_Accept_Successful_Http_Status(int statusCode) {
-            await HttpClientBuilder.Create("http://httpbin.org")
+            await HttpClientBuilder.Create(BASE_URL)
                 .Path("status").Path(statusCode)
                 .AsyncGet()
                 .GetResponse();
@@ -22,7 +23,7 @@ namespace CSharpRestClient.Test {
 
         [Fact]
         public async Task Should_Throw_Timeout_Error() {
-            var requestTask = HttpClientBuilder.Create("http://httpbin.org")
+            var requestTask = HttpClientBuilder.Create(BASE_URL)
                 .Path("status").Path(200)
                 .Timeout(10)
                 .AsyncGet()
@@ -45,7 +46,7 @@ namespace CSharpRestClient.Test {
         [InlineData(500)]
         [InlineData(501)]
         public async Task Should_Accept_Defined_Http_Status(int statusCode) {
-            var response = await HttpClientBuilder.Create("http://httpbin.org")
+            var response = await HttpClientBuilder.Create(BASE_URL)
                 .Path("status").Path(statusCode)
                 .AsyncGet()
                 .AcceptStatusCodes(statusCode)
@@ -65,7 +66,7 @@ namespace CSharpRestClient.Test {
         [InlineData(501, HttpStatusCode.NotImplemented)]
         [InlineData(502, HttpStatusCode.BadGateway)]
         public async Task Should_Throw_Error_With_Status_Code_When_Response_Isnt_Ok(int statusCode, HttpStatusCode httpStatusCode) {
-            var requestTask = HttpClientBuilder.Create("http://httpbin.org")
+            var requestTask = HttpClientBuilder.Create(BASE_URL)
                 .Path("status").Path(statusCode)
                 .AsyncGet()
                 .GetResponse();

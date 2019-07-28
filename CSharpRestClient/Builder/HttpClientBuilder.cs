@@ -1,17 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Text;
-using System.Threading.Tasks;
-using CSharpRestClient.Options;
 using CSharpRestClient.Enums;
+using CSharpRestClient.Interceptors;
+using CSharpRestClient.Options;
 using CSharpRestClient.Request;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-using CSharpRestClient.Interceptors;
 
 namespace CSharpRestClient.Builder {
     public class HttpClientBuilder {
@@ -19,7 +14,7 @@ namespace CSharpRestClient.Builder {
         private ContentType _contentType = ContentType.Application_Json;
         private string _payload;
         private Dictionary<string, string> _headers;
-        private Dictionary<string, string> _queryParams;
+        private StringBuilder _formattedQueryParams = new StringBuilder();
         private TimeSpan? _timeout = default(TimeSpan?);
 
         private List<IPayloadInterceptor> _payloadInterceptors;
@@ -31,11 +26,6 @@ namespace CSharpRestClient.Builder {
 
         public static HttpClientBuilder Create(string baseUrl) {
             return new HttpClientBuilder(baseUrl);
-        }
-
-        public HttpClientBuilder Url(string url) {
-            this._urlBuilder.Append(url);
-            return this;
         }
 
         public HttpClientBuilder Path(string path) {
@@ -52,22 +42,34 @@ namespace CSharpRestClient.Builder {
             return Path(path.ToString());
         }
 
+        public HttpClientBuilder NoTimeout() {
+            this._timeout = System.Threading.Timeout.InfiniteTimeSpan;
+            return this;
+        }
+
         public HttpClientBuilder Timeout(TimeSpan timeout) {
             this._timeout = timeout;
             return this;
         }
-        public HttpClientBuilder Timeout(int timeoutMs) {
 
+        public HttpClientBuilder Timeout(int timeoutMs) {
             if (timeoutMs <= 0) throw new ArgumentException("Timeout must be greater than zero.");
             this._timeout = TimeSpan.FromMilliseconds(timeoutMs);
             return this;
         }
 
+        public string GetFormatQueryParams() {
+            if (_formattedQueryParams.Length == 0)
+                return String.Empty;
+            // remove the last '&'
+            return _formattedQueryParams.ToString(0, _formattedQueryParams.Length - 1);
+        }
+
         public HttpClientBuilder Query(string key, string value) {
-            if (this._queryParams == null) {
-                this._queryParams = new Dictionary<string, string>();
-            }
-            this._queryParams.Add(key, value);
+            this._formattedQueryParams.Append(key)
+                .Append("=")
+                .Append(value)
+                .Append("&");
             return this;
         }
 
@@ -145,8 +147,9 @@ namespace CSharpRestClient.Builder {
         }
 
         private HttpRequest CreateHttpRequest(HttpMethod httpMethod) {
-            return HttpRequest.Create(httpMethod, _urlBuilder.ToString(), _contentType, _payload,
-                _headers, _queryParams, _timeout, _payloadInterceptors, _responseInterceptors);
+            var requestUri = UrlHelper.GetUrlWithQueryParams(_urlBuilder.ToString(), GetFormatQueryParams());
+            return HttpRequest.Create(httpMethod, requestUri, _contentType, _payload, _headers, _timeout,
+                _payloadInterceptors, _responseInterceptors);
         }
 
         public HttpRequest AsyncGet() => CreateHttpRequest(HttpMethod.Get);
