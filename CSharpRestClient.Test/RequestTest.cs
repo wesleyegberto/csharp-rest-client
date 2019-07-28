@@ -23,6 +23,7 @@ namespace CSharpRestClient.Test
         [Fact]
         public async Task Should_Request_And_Deserialize_Model_With_Guid() {
             var model = await HttpClientBuilder.Create(BASE_URL)
+                .Path("uuid")
                 .AsyncGet<ModelWithGuid>()
                 .GetEntity();
 
@@ -49,24 +50,6 @@ namespace CSharpRestClient.Test
     
             Assert.NotNull(getModel.Headers);
             Assert.Equal("x-123", getModel.Headers["X-Pwd"]);
-        }
-
-        public ModelWithGuid fallback() {
-            return new ModelWithGuid() {
-                Uuid = Guid.Empty
-            };
-        }
-
-        [Fact]
-        public async Task Should_Request_Toxy_Server_With_Policy() {
-            var model = await HttpClientBuilder.Create("http://localhost:3000/uuid")
-                .AsyncGet<ModelWithGuid>()
-                .Retry(2)
-                .Fallback(async can => fallback())
-                .GetEntity();
-
-            Assert.NotNull(model);
-            Assert.NotEqual(Guid.Empty, model.Uuid);
         }
     }
 }

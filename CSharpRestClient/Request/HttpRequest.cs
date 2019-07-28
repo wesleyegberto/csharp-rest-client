@@ -177,7 +177,7 @@ namespace CSharpRestClient.Request {
                 }
             } catch (RestClientException) {
                 throw;
-            } catch (TaskCanceledException ex) {
+            } catch (OperationCanceledException ex) {
                 throw new RestClientTimeoutException($"Timeout during the request to URL {Url}.", ex);
             } catch (Exception ex) {
                 throw new RestClientException($"An error occurred during the request to URL {Url}.", ex);
