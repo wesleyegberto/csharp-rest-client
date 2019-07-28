@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using CSharpRestClient.Builder;
-using CSharpRestClient.Request;
 using CSharpRestClient.Test.Models;
 using Xunit;
 
-namespace test {
+namespace CSharpRestClient.Test
+{
     public class RequestTest {
         private const string BASE_URL = "http://httpbin.org";
 
