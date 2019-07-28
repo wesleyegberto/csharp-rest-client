@@ -144,17 +144,17 @@ namespace CSharpRestClient.Builder {
             return this;
         }
 
-        private HttpRequest CreateHttpRequest(HttpMethod httpMethod) {
-            return HttpRequest.Create(httpMethod, _urlBuilder.ToString(), _contentType, _payload,
+        private HttpRequest<T> CreateHttpRequest<T>(HttpMethod httpMethod) {
+            return HttpRequest<T>.Create(httpMethod, _urlBuilder.ToString(), _contentType, _payload,
                 _headers, _queryParams, _timeout, _payloadInterceptors, _responseInterceptors);
         }
 
-        public HttpRequest AsyncGet() => CreateHttpRequest(HttpMethod.Get);
+        public HttpRequest<T> AsyncGet<T>() => CreateHttpRequest<T>(HttpMethod.Get);
 
-        public HttpRequest AsyncPost() => CreateHttpRequest(HttpMethod.Post);
+        public HttpRequest<T> AsyncPost<T>() => CreateHttpRequest<T>(HttpMethod.Post);
 
-        public HttpRequest AsyncPut() => CreateHttpRequest(HttpMethod.Put);
+        public HttpRequest<T> AsyncPut<T>() => CreateHttpRequest<T>(HttpMethod.Put);
 
-        public HttpRequest AsyncDelete() => CreateHttpRequest(HttpMethod.Delete);
+        public HttpRequest<T> AsyncDelete<T>() => CreateHttpRequest<T>(HttpMethod.Delete);
     }
 }

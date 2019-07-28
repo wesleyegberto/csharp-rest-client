@@ -6,14 +6,19 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using CSharpRestClient.Enums;
 using CSharpRestClient.Exceptions;
 using CSharpRestClient.Interceptors;
 using Newtonsoft.Json;
+using Polly;
+using Polly.Fallback;
+using Polly.Retry;
+using Polly.Wrap;
 
 namespace CSharpRestClient.Request {
-    public class HttpRequest {
+    public class HttpRequest<T> {
         private readonly HttpMethod _httpMethod;
         private readonly string _url;
         private readonly ContentType _contentType;
@@ -21,6 +26,9 @@ namespace CSharpRestClient.Request {
         private readonly Dictionary<string, string> _headers;
         private readonly Dictionary<string, string> _queryParams;
         private readonly TimeSpan? _timeout;
+
+        private int? numberOfRetries;
+        Func<CancellationToken, Task<T>> fallbackAction;
 
         private readonly List<IPayloadInterceptor> _payloadInterceptors;
         private readonly List<IResponseInterceptor> _responseInterceptors;
@@ -42,10 +50,10 @@ namespace CSharpRestClient.Request {
             this._responseInterceptors = responseInterceptors;
         }
 
-        public static HttpRequest Create(HttpMethod httpMethod, string url, ContentType contentType, string payload,
+        public static HttpRequest<T> Create(HttpMethod httpMethod, string url, ContentType contentType, string payload,
             Dictionary<string, string> headers, Dictionary<string, string> queryParams, TimeSpan? timeout,
             List<IPayloadInterceptor> payloadInterceptors = null, List<IResponseInterceptor> responseInterceptors = null) {
-            return new HttpRequest(httpMethod, url, contentType, payload, headers, queryParams, timeout, payloadInterceptors, responseInterceptors);
+            return new HttpRequest<T>(httpMethod, url, contentType, payload, headers, queryParams, timeout, payloadInterceptors, responseInterceptors);
         }
 
         public static string FormartParamsToUrl(Dictionary<string, string> parameters) {
@@ -58,18 +66,28 @@ namespace CSharpRestClient.Request {
         ///<summary>
         /// Helper method to debug or log in the server.
         ///</summary>
-        public HttpRequest LogPayloadToConsole() {
+        public HttpRequest<T> LogPayloadToConsole() {
             Console.WriteLine(_payload);
             return this;
         }
 
-        public HttpRequest AcceptAnyStatusCode() {
+        public HttpRequest<T> AcceptAnyStatusCode() {
             this._acceptAnyStatusCode = true;
             return this;
         }
 
-        public HttpRequest AcceptStatusCodes(params int[] statusCodes) {
+        public HttpRequest<T> AcceptStatusCodes(params int[] statusCodes) {
             this._statusCodesToAccept = statusCodes;
+            return this;
+        }
+
+        public HttpRequest<T> Retry(int numberOfRetries) {
+            this.numberOfRetries = numberOfRetries;
+            return this;
+        }
+
+        public HttpRequest<T> Fallback(Func<CancellationToken, Task<T>> fallbackAction) {
+            this.fallbackAction = fallbackAction;
             return this;
         }
 
@@ -136,6 +154,8 @@ namespace CSharpRestClient.Request {
                     throw new RestClientException(response.StatusCode, "An internal error occurred during the request.");
                 case HttpStatusCode.ServiceUnavailable:
                     throw new RestClientException(response.StatusCode, "The requested server is unavailable.");
+                case HttpStatusCode.BadGateway:
+                    throw new RestClientException(response.StatusCode, "Bad gateway.");
                 default:
                     throw new RestClientException(response.StatusCode, "An unexpected response was received.");
             }
@@ -157,11 +177,9 @@ namespace CSharpRestClient.Request {
             throw new RestClientException("HTTP method not supported.");
         }
 
-        private async Task<string> AsyncRequest() {
-            var requestTask = CreateRequest();
-
+        public async Task<string> ExecuteRequest() {
             try {
-                using(var httpResponse = await requestTask) {
+                using(var httpResponse = await CreateRequest()) {
                     ValidateHttpStatus(httpResponse);
                     return await ExtractResponse(httpResponse.Content);
                 }
@@ -174,16 +192,57 @@ namespace CSharpRestClient.Request {
             }
         }
 
-        public async Task<string> GetResponse() {
-            return await AsyncRequest();
-        }
-
-        public async Task<T> GetEntity<T>() {
-            var response = await GetResponse();
+        private async Task<T> ExecuteRequestAndParseEntity() {
+            var response = await ExecuteRequest();
             if (string.IsNullOrEmpty(response)) {
                 return default(T);
             }
             return JsonConvert.DeserializeObject<T>(response);
+        }
+
+        private PolicyWrap<T> BuildPolicy() {
+            Policy<T> fallback = null;
+            if (fallbackAction != null) {
+                fallback = Policy<T>
+                    .Handle<RestClientException>()
+                    .FallbackAsync<T>(fallbackAction);
+            } else {
+                fallback = Policy.NoOpAsync<T>();
+            }
+
+            Policy<T> retry = null;
+            if (numberOfRetries.HasValue) {
+                retry = Policy<T>
+                    .Handle<RestClientException>()
+                    .RetryAsync(numberOfRetries.Value);
+            } else {
+                retry = Policy.NoOpAsync<T>();
+            }
+
+            var breaker = Policy<T>
+                .Handle<RestClientException>()
+                .CircuitBreakerAsync(3, TimeSpan.FromSeconds(5));
+
+            return Policy.WrapAsync(fallback, retry, breaker);
+        }
+
+        private async Task<T> AsyncRequest() {
+            var policyWrap = BuildPolicy();
+            var policyResult = await policyWrap
+                .ExecuteAndCaptureAsync(ExecuteRequestAndParseEntity);
+
+            if (policyResult.Outcome == OutcomeType.Successful)
+                return policyResult.Result;
+
+            throw policyResult.FinalException;
+        }
+
+        public async Task<string> GetResponse() {
+            return await ExecuteRequest();
+        }
+
+        public async Task<T> GetEntity() {
+            return await AsyncRequest();
         }
     }
 }

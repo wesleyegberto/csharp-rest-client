@@ -16,7 +16,7 @@ namespace CSharpRestClient.Test {
         public async Task Should_Accept_Successful_Http_Status(int statusCode) {
             await HttpClientBuilder.Create("http://httpbin.org")
                 .Path("status").Path(statusCode)
-                .AsyncGet()
+                .AsyncGet<dynamic>()
                 .GetResponse();
         }
 
@@ -25,7 +25,7 @@ namespace CSharpRestClient.Test {
             var requestTask = HttpClientBuilder.Create("http://httpbin.org")
                 .Path("status").Path(200)
                 .Timeout(10)
-                .AsyncGet()
+                .AsyncGet<dynamic>()
                 .GetResponse();
             
             var exception = await Assert.ThrowsAnyAsync<RestClientTimeoutException>(() => requestTask);
@@ -47,7 +47,7 @@ namespace CSharpRestClient.Test {
         public async Task Should_Accept_Defined_Http_Status(int statusCode) {
             var response = await HttpClientBuilder.Create("http://httpbin.org")
                 .Path("status").Path(statusCode)
-                .AsyncGet()
+                .AsyncGet<dynamic>()
                 .AcceptStatusCodes(statusCode)
                 .GetResponse();
         }
@@ -67,7 +67,7 @@ namespace CSharpRestClient.Test {
         public async Task Should_Throw_Error_With_Status_Code_When_Response_Isnt_Ok(int statusCode, HttpStatusCode httpStatusCode) {
             var requestTask = HttpClientBuilder.Create("http://httpbin.org")
                 .Path("status").Path(statusCode)
-                .AsyncGet()
+                .AsyncGet<dynamic>()
                 .GetResponse();
 
             var exception = await Assert.ThrowsAnyAsync<RestClientException>(() => requestTask);
