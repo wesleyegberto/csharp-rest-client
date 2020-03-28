@@ -28,7 +28,7 @@ namespace CSharpRestClient.Test {
                 .Timeout(10)
                 .AsyncGet()
                 .GetResponse();
-            
+
             var exception = await Assert.ThrowsAnyAsync<RestClientTimeoutException>(() => requestTask);
             Assert.True(exception is RestClientTimeoutException);
         }
