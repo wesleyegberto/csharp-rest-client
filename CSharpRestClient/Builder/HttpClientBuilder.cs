@@ -10,31 +10,42 @@ using Newtonsoft.Json;
 
 namespace CSharpRestClient.Builder {
     public class HttpClientBuilder {
-        private StringBuilder _urlBuilder;
+        private readonly IHttpClientFactory _httpClientFactory;
+
+        private readonly StringBuilder _uriBuilder;
         private ContentType _contentType = ContentType.Application_Json;
-        private string _payload;
+        private readonly StringBuilder _formattedQueryParams = new StringBuilder();
         private Dictionary<string, string> _headers;
-        private StringBuilder _formattedQueryParams = new StringBuilder();
         private TimeSpan? _timeout = default(TimeSpan?);
+        private string _payload;
 
         private List<IPayloadInterceptor> _payloadInterceptors;
         private List<IResponseInterceptor> _responseInterceptors;
 
         private HttpClientBuilder(string baseUrl) {
-            this._urlBuilder = new StringBuilder(baseUrl);
+            this._uriBuilder = new StringBuilder(baseUrl);
         }
 
-        public static HttpClientBuilder Create(string baseUrl) {
-            return new HttpClientBuilder(baseUrl);
+        private HttpClientBuilder(IHttpClientFactory httpClientFactory, string baseUri) {
+            this._httpClientFactory = httpClientFactory;
+            this._uriBuilder = new StringBuilder(baseUri);
+        }
+
+        public static HttpClientBuilder Create(IHttpClientFactory httpClientFactory, string baseUri) {
+            return new HttpClientBuilder(httpClientFactory, baseUri);
+        }
+
+        public static HttpClientBuilder Create(string baseUri) {
+            return new HttpClientBuilder(baseUri);
         }
 
         public HttpClientBuilder Path(string path) {
-            this._urlBuilder.Append("/").Append(path);
+            this._uriBuilder.Append("/").Append(path);
             return this;
         }
 
         public HttpClientBuilder Path(int path) {
-            this._urlBuilder.Append("/").Append(path);
+            this._uriBuilder.Append("/").Append(path);
             return this;
         }
 
@@ -74,11 +85,43 @@ namespace CSharpRestClient.Builder {
         }
 
         public HttpClientBuilder Query(string key, object value) {
-            return Query(key, value == null ? null : value.ToString());
+            if (value == null)
+                return this;
+            return Query(key, value?.ToString());
         }
 
         public HttpClientBuilder Query(string key, Guid value) {
             return Query(key, value.ToString());
+        }
+
+        public HttpClientBuilder Query(string key, Guid? value) {
+            if (value == null || !value.HasValue)
+                return this;
+            return Query(key, value.ToString());
+        }
+
+        public HttpClientBuilder Query(string key, long? value) {
+            if (value == null || !value.HasValue)
+                return this;
+            return Query(key, value.ToString());
+        }
+
+        public HttpClientBuilder Query(string key, decimal? value) {
+            if (value == null || !value.HasValue)
+                return this;
+            return Query(key, value.ToString());
+        }
+
+        public HttpClientBuilder QueryDate(string key, DateTime? value) {
+            if (value == null || !value.HasValue)
+                return this;
+            return Query(key, value.Value.ToString("yyyy-MM-dd"));
+        }
+
+        public HttpClientBuilder QueryDateTime(string key, DateTime? value) {
+            if (value == null || !value.HasValue)
+                return this;
+            return Query(key, value.Value.ToString("yyyy-MM-ddTHH:mm:ss"));
         }
 
         public HttpClientBuilder Header(string key, string value) {
@@ -147,9 +190,9 @@ namespace CSharpRestClient.Builder {
         }
 
         private HttpRequest<T> CreateHttpRequest<T>(HttpMethod httpMethod) {
-            var requestUri = UrlHelper.GetUrlWithQueryParams(_urlBuilder.ToString(), GetFormatQueryParams());
-            return HttpRequest<T>.Create(httpMethod, requestUri, _contentType, _payload, _headers, _timeout,
-                _payloadInterceptors, _responseInterceptors);
+            var requestUri = UrlHelper.GetUrlWithQueryParams(_uriBuilder.ToString(), GetFormatQueryParams());
+            return HttpRequest<T>.Create(_httpClientFactory, httpMethod, requestUri, _contentType, _payload,
+                _headers, _timeout, _payloadInterceptors, _responseInterceptors);
         }
 
         public HttpRequest<T> AsyncGet<T>() => CreateHttpRequest<T>(HttpMethod.Get);

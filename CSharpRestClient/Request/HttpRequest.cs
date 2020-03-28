@@ -19,10 +19,9 @@ using Polly.Wrap;
 
 namespace CSharpRestClient.Request {
     public class HttpRequest<T> {
-        private static readonly HttpClient _httpClient = new HttpClient();
+        private readonly IHttpClientFactory _httpClientFactory;
 
         private readonly HttpRequestMessage _httpRequestMessage;
-        private readonly HttpMethod _httpMethod;
         private readonly ContentType _contentType;
         private readonly string _payload;
         private readonly TimeSpan? _timeout;
@@ -47,15 +46,15 @@ namespace CSharpRestClient.Request {
 
         private bool HasBodyToSend {
             get {
-                return _payload != null && (_httpMethod == HttpMethod.Post || _httpMethod == HttpMethod.Put);
+                return _payload != null && (_httpRequestMessage.Method == HttpMethod.Post || _httpRequestMessage.Method == HttpMethod.Put);
             }
         }
 
-        private HttpRequest(HttpMethod httpMethod, string requestUri, ContentType contentType, string payload,
-            Dictionary<string, string> headers, TimeSpan? timeout,
-            List<IPayloadInterceptor> payloadInterceptors, List<IResponseInterceptor> responseInterceptors) {
-            this._httpMethod = httpMethod;
-            this._httpRequestMessage = CreateRequestMessage(httpMethod, requestUri, headers, payload);
+        private HttpRequest(IHttpClientFactory httpClientFactory, HttpMethod httpMethod, string requestUri,
+                ContentType contentType, string payload, Dictionary<string, string> headers, TimeSpan? timeout,
+                List<IPayloadInterceptor> payloadInterceptors, List<IResponseInterceptor> responseInterceptors) {
+            this._httpClientFactory = httpClientFactory;
+            this._httpRequestMessage = CreateRequestMessage(httpMethod, requestUri, headers);
             this._contentType = contentType;
             this._payload = payload;
             this._timeout = timeout;
@@ -63,14 +62,14 @@ namespace CSharpRestClient.Request {
             this._responseInterceptors = responseInterceptors;
         }
 
-        public static HttpRequest<T> Create(HttpMethod httpMethod, string requestUri, ContentType contentType, string payload,
-            Dictionary<string, string> headers, TimeSpan? timeout,
-            List<IPayloadInterceptor> payloadInterceptors = null, List<IResponseInterceptor> responseInterceptors = null) {
-            return new HttpRequest<T>(httpMethod, requestUri, contentType, payload, headers, timeout, payloadInterceptors, responseInterceptors);
+        public static HttpRequest<T> Create(IHttpClientFactory httpClientFactory, HttpMethod httpMethod, string requestUri,
+                ContentType contentType, string payload, Dictionary<string, string> headers, TimeSpan? timeout,
+                List<IPayloadInterceptor> payloadInterceptors = null, List<IResponseInterceptor> responseInterceptors = null) {
+            return new HttpRequest<T>(httpClientFactory, httpMethod, requestUri, contentType, payload, headers, timeout, payloadInterceptors, responseInterceptors);
         }
 
         private static HttpRequestMessage CreateRequestMessage(HttpMethod httpMethod, string requestUri,
-                Dictionary<string, string> headers, string payload) {
+                Dictionary<string, string> headers) {
             var httpRequestMessage = new HttpRequestMessage(httpMethod, requestUri);
             if (headers != null && headers.Count > 0) {
                 foreach (var header in headers) {
@@ -161,16 +160,25 @@ namespace CSharpRestClient.Request {
             return response;
         }
 
+        private HttpClient CreateHttpClient() {
+            if (_httpClientFactory == null) {
+                return new HttpClient();
+            }
+            return _httpClientFactory.CreateClient();
+        }
+
         private async Task<string> ExecuteRequest() {
             if (HasBodyToSend) {
                 _httpRequestMessage.Content = GeneratePayloadContent();
             }
 
+            var httpClient = CreateHttpClient();
+
             if (_timeout.HasValue)
-                _httpClient.Timeout = _timeout.Value;
+                httpClient.Timeout = _timeout.Value;
             
             try {
-                using(var httpResponse = await _httpClient.SendAsync(_httpRequestMessage)) {
+                using(var httpResponse = await httpClient.SendAsync(_httpRequestMessage)) {
                     var response = await ExtractResponse(httpResponse);
                     ValidateExpectedHttpStatus(httpResponse);
                     return response;

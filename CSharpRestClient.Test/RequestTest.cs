@@ -5,8 +5,7 @@ using CSharpRestClient.Builder;
 using CSharpRestClient.Test.Models;
 using Xunit;
 
-namespace CSharpRestClient.Test
-{
+namespace CSharpRestClient.Test {
     public class RequestTest {
         private const string BASE_URL = "http://httpbin.org";
 
@@ -22,7 +21,8 @@ namespace CSharpRestClient.Test
 
         [Fact]
         public async Task Should_Request_And_Deserialize_Model_With_Guid() {
-            var model = await HttpClientBuilder.Create(BASE_URL)
+            var model =
+                await HttpClientBuilder.Create(BASE_URL)
                 .Path("uuid")
                 .AsyncGet<ModelWithGuid>()
                 .GetEntity();
@@ -37,17 +37,19 @@ namespace CSharpRestClient.Test
                 .Path("anything")
                 .Query("q", "Test")
                 .Query("v", 1)
+                .QueryDate("dt", new DateTime(2000, 12, 30))
                 .Header("X-Pwd", "x-123")
                 .AsyncGet<HttpBinGetModel>()
                 .GetEntity();
 
             Assert.NotNull(getModel);
-            Assert.Equal("https://httpbin.org/anything?q=Test&v=1", getModel.Url);
+            Assert.Equal("http://httpbin.org/anything?q=Test&v=1&dt=2000-12-30", getModel.Url);
 
             Assert.NotNull(getModel.Args);
             Assert.Equal("Test", getModel.Args["q"]);
             Assert.Equal("1", getModel.Args["v"]);
-    
+            Assert.Equal("2000-12-30", getModel.Args["dt"]);
+
             Assert.NotNull(getModel.Headers);
             Assert.Equal("x-123", getModel.Headers["X-Pwd"]);
         }
